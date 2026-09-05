@@ -53,7 +53,7 @@ deploy 时 `runtime/` 以 junction 挂到 `<Host插件目录>/assets/runtime`，
 - 新增工具：`src/tools.ts` 加声明（名字必须带 `blender.` 前缀，描述写短——schema 是
   token 大头）+ `assets/bridge/commands/` 加对应 Python 命令，两边同步。
 - 改 Blender 版本号要**同步三处**：`scripts/fetch_blender.py` 的 `DEFAULT_VERSION`、
-  `src/Panel.vue` 的 resolveAsset 路径。
+  `src/runtime.ts` 的 `BLENDER_VERSION`（面板探测/下载/启动都走这里）。
 - 共享依赖约束：`vue` / `@beep/sdk` 只用具名导入或命名空间导入（构建期被 kit 改写为
   全局解构，与 Host 共用实例）。
 - 桥脚本跑在 Blender 内嵌 Python 里，只用标准库；`fetch_blender.py` 跑在系统 Python，

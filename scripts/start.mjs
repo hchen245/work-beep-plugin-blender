@@ -30,13 +30,14 @@ fs.cpSync(dist, dst, { recursive: true });
 
 // runtime（Blender 绿色版）以 junction 挂进 assets/，不存在则提示下载
 const runtimeLink = path.join(dst, "assets", "runtime");
+const runtimeSrc = path.join(root, "runtime");
 if (!fs.existsSync(runtimeLink)) {
-    const runtimeSrc = path.join(root, "runtime");
     if (fs.existsSync(runtimeSrc)) {
         fs.symlinkSync(runtimeSrc, runtimeLink, "junction");
         console.log("runtime 联接 ->", runtimeSrc);
     } else {
-        console.warn("runtime/ 不存在：请先运行 python scripts/fetch_blender.py 下载 Blender 绿色版");
+        fs.mkdirSync(runtimeLink, { recursive: true });
+        console.log("已创建空的 assets/runtime，可在面板里下载绿色版（需新版 Host）");
     }
 }
 
