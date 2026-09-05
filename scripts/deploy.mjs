@@ -19,13 +19,14 @@ fs.cpSync(dist, dst, { recursive: true });
 
 // 插件代码经 resolveAsset("runtime/...") 访问，锚点是 <部署目录>/assets/runtime
 const runtimeLink = path.join(dst, "assets", "runtime");
+const runtimeSrc = path.resolve(here, "../runtime");
 if (!fs.existsSync(runtimeLink)) {
-    const runtimeSrc = path.resolve(here, "../runtime");
     if (fs.existsSync(runtimeSrc)) {
         fs.symlinkSync(runtimeSrc, runtimeLink, "junction");
         console.log("runtime 联接 ->", runtimeSrc);
     } else {
-        console.warn("runtime/ 不存在：请先运行 python scripts/fetch_blender.py 下载 Blender 绿色版，再重新 deploy");
+        fs.mkdirSync(runtimeLink, { recursive: true });
+        console.log("已创建空的 assets/runtime，可在面板里下载绿色版");
     }
 }
 console.log("已部署到", dst);
