@@ -3,10 +3,16 @@
 import type { PluginTool } from "@beep/sdk";
 import { state } from "./state";
 
+// SDK 的属性 schema 只声明了 type/description/enum；数组参数还需要 items/minItems 等 JSON Schema 字段
+type PropertySchema = NonNullable<PluginTool["parameters"]["properties"]>[string] & Record<string, unknown>;
+type ToolParameters = Omit<PluginTool["parameters"], "properties"> & {
+    properties?: Record<string, PropertySchema>;
+};
+
 function bridgeTool(
     cmd: string,
     description: string,
-    parameters: PluginTool["parameters"],
+    parameters: ToolParameters,
 ): PluginTool {
     return {
         name: `blender.${cmd.replace(/\./g, "_")}`,
@@ -28,6 +34,42 @@ function bridgeTool(
 
 export const tools: PluginTool[] = [
     bridgeTool("scene.list_objects", "列出场景中所有物体的名称、类型、位置、旋转（弧度）、缩放。其他命令都要求传物体名，所以不确定要操作谁时先调它", {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+}),
+    bridgeTool("scene.list_hierarchy", "查看当前场景的物体层级关系，包括每个物体的 parent、children 和可见状态。需要按部件或层级进行局部编辑、隔离查看或视觉验收时，先调用此工具了解场景结构", {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+}),
+    bridgeTool("scene.isolate_objects", "临时隔离指定物体，只显示当前需要编辑或视觉检查的物体，并隐藏其他物体。适合复杂场景中按部件或层级逐步检查。完成局部检查后必须调用 scene.restore_visibility 恢复原始可见状态", {
+        "type": "object",
+        "properties": {
+            "names": {
+                "type": "array",
+                "description": "需要保持可见的物体名称列表",
+                "items": {
+                    "type": "string"
+                },
+                "minItems": 1
+            }
+        },
+        "required": ["names"],
+        "additionalProperties": false
+}),
+    bridgeTool("scene.isolate_hierarchy", "按层级隔离一个物体：保留指定 root 及其所有子孙对象可见，隐藏场景中的其他对象。适合 LLM 分层编辑和检查模型，例如只查看 Chair 的 Back 层级；完成后使用 scene.restore_visibility 恢复原来的可见性", {
+        "type": "object",
+        "properties": {
+            "root": {
+                "type": "string",
+                "description": "要隔离的层级根物体名称，例如 Back。该物体及其所有 descendants 会保持可见"
+            }
+        },
+        "required": ["root"],
+        "additionalProperties": false
+}),
+    bridgeTool("scene.restore_visibility", "恢复调用 scene.isolate_objects 之前的场景可见状态。完成局部编辑或局部视觉检查后使用", {
         "type": "object",
         "properties": {},
         "additionalProperties": false

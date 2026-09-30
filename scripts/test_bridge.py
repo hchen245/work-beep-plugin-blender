@@ -86,6 +86,8 @@ CORE_ERRORS = [
     "render.validate_missing_file",
     "view.bad_axis",
     "view.no_viewport",
+    "scene.isolate_hierarchy_no_root",
+    "scene.isolate_hierarchy_not_found",
 ]
 
 
@@ -115,7 +117,9 @@ class Runner:
         try:
             data = self.call(cmd, params)
             if check is not None:
-                check(data)
+                result = check(data)
+                if result is False:
+                    raise AssertionError(f"positive check failed: {data}")
             self._ok(name)
         except Exception as exc:
             self._fail(name, f"{type(exc).__name__}: {exc}")
@@ -155,6 +159,129 @@ def main() -> int:
         "object.add_cube",
         {"name": "Cube", "size": 2, "location": [0, 0, 0]},
         lambda d: d.get("validated") is True and _has_obj("Cube"),
+    )
+    # --- hierarchy / visibility tools ---
+
+    r.call(
+        "object.add_cube",
+        {"name": "Seat", "size": 1, "location": [0, 0, 0]},
+    )
+    r.call(
+        "object.add_cube",
+        {"name": "Back", "size": 1, "location": [0, 0, 1]},
+    )
+
+    # Build a simple hierarchy:
+    #
+    # Cube
+    # ├── Seat
+    # └── Back
+    #
+    seat = bpy.data.objects["Seat"]
+    back = bpy.data.objects["Back"]
+    cube = bpy.data.objects["Cube"]
+
+    seat.parent = cube
+    back.parent = cube
+
+    r.call(
+        "object.add_cube",
+        {"name": "BackDetail", "size": 0.5, "location": [0, 0, 2]},
+    )
+    back_detail = bpy.data.objects["BackDetail"]
+    back_detail.parent = back
+    r.pos(
+        "pos.list_hierarchy",
+        "scene.list_hierarchy",
+        {},
+        lambda d: (
+            d.get("count", 0) >= 3
+            and any(
+                o["name"] == "Cube"
+                and "Seat" in o.get("children", [])
+                and "Back" in o.get("children", [])
+                for o in d.get("objects", [])
+            )
+            and any(
+                o["name"] == "Seat"
+                and o.get("parent") == "Cube"
+                for o in d.get("objects", [])
+            )
+        ),
+    )
+    r.pos(
+        "pos.isolate_objects",
+        "scene.isolate_objects",
+        {"names": ["Seat"]},
+        lambda d: (
+            "Seat" in d.get("isolated", [])
+            and bpy.data.objects["Seat"].hide_viewport is False
+            and bpy.data.objects["Seat"].hide_render is False
+            and bpy.data.objects["Cube"].hide_viewport is True
+            and bpy.data.objects["Cube"].hide_render is True
+            and bpy.data.objects["Back"].hide_viewport is True
+            and bpy.data.objects["Back"].hide_render is True
+        ),
+    )
+    r.pos(
+        "pos.restore_visibility",
+        "scene.restore_visibility",
+        {},
+        lambda d: (
+            d.get("restored") is True
+            and bpy.data.objects["Seat"].hide_viewport is False
+            and bpy.data.objects["Seat"].hide_render is False
+            and bpy.data.objects["Cube"].hide_viewport is False
+            and bpy.data.objects["Cube"].hide_render is False
+            and bpy.data.objects["Back"].hide_viewport is False
+            and bpy.data.objects["Back"].hide_render is False
+        ),
+    )
+    # Restore must preserve visibility that existed before isolation.
+    bpy.data.objects["Back"].hide_viewport = True
+    bpy.data.objects["Back"].hide_render = True
+
+    r.call(
+        "scene.isolate_objects",
+        {"names": ["Seat"]},
+    )
+
+    r.pos(
+        "pos.restore_original_visibility",
+        "scene.restore_visibility",
+        {},
+        lambda d: (
+            d.get("restored") is True
+            and bpy.data.objects["Cube"].hide_viewport is False
+            and bpy.data.objects["Seat"].hide_viewport is False
+            and bpy.data.objects["Back"].hide_viewport is True
+            and bpy.data.objects["Back"].hide_render is True
+        ),
+    )
+
+    # Leave the rest of the old integration test with a normal visible scene.
+    bpy.data.objects["Back"].hide_viewport = False
+    bpy.data.objects["Back"].hide_render = False
+    # --- end of hierarchy / visibility tools ---
+
+    r.pos(
+        "pos.isolate_hierarchy",
+        "scene.isolate_hierarchy",
+        {"root": "Back"},
+        lambda d: (
+            d.get("root") == "Back"
+            and set(d.get("isolated", [])) == {"Back", "BackDetail"}
+            and bpy.data.objects["Back"].hide_viewport is False
+            and bpy.data.objects["BackDetail"].hide_viewport is False
+            and bpy.data.objects["Cube"].hide_viewport is True
+            and bpy.data.objects["Seat"].hide_viewport is True
+        ),
+    )
+    r.pos(
+        "pos.restore_hierarchy_visibility",
+        "scene.restore_visibility",
+        {},
+        lambda d: d.get("restored") is True,
     )
     r.pos(
         "pos.list_has_cube",
@@ -300,6 +427,25 @@ def main() -> int:
     r.call("light.add", {"name": "Key"})
     r.call("camera.add", {"name": "Shot", "location": [3, -3, 2]})
     r.call("material.create", {"name": "MatA"})
+
+    # --- hierarchy / visibility negative tests ---
+
+    r.neg(
+        "neg.isolate_hierarchy_no_root",
+        "scene.isolate_hierarchy_no_root",
+        "scene.isolate_hierarchy",
+        {},
+        "root",
+    )
+
+    r.neg(
+        "neg.isolate_hierarchy_not_found",
+        "scene.isolate_hierarchy_not_found",
+        "scene.isolate_hierarchy",
+        {"root": "NoSuchHierarchy"},
+        "not found",
+    )
+    # --- end of hierarchy / visibility negative tests ---
 
     r.neg("neg.object_not_found", "object.not_found", "object.move", {"name": "NoSuch", "location": [0, 0, 0]}, "not found")
     r.neg("neg.size_le_0", "object.size_le_0", "object.add_cube", {"name": "Bad", "size": 0}, "greater than zero")
