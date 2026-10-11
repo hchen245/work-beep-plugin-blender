@@ -41,6 +41,14 @@ CORE_ERRORS = [
     "object.scale_missing",
     "object.scale_le_0",
     "object.duplicate_no_name",
+    "object.empty_name_empty",
+    "object.empty_exists",
+    "object.empty_location_bad",
+    "object.parent_child_missing",
+    "object.parent_missing",
+    "object.parent_same",
+    "object.parent_cycle",
+    "object.parent_keep_bad",
     "mesh.not_found",
     "mesh.not_mesh",
     "mesh.subdivide_bad",
@@ -283,6 +291,68 @@ def main() -> int:
         {},
         lambda d: d.get("restored") is True,
     )
+
+    # --- agent 自建层级：add_empty + set_parent ---
+    r.pos(
+        "pos.add_empty",
+        "object.add_empty",
+        {"name": "BackAssembly", "location": [1, 2, 0.5]},
+        lambda d: (
+            d.get("type") == "EMPTY"
+            and bpy.data.objects["BackAssembly"].type == "EMPTY"
+            and bpy.data.objects["BackAssembly"].empty_display_type == "PLAIN_AXES"
+            and d.get("location") == [1.0, 2.0, 0.5]
+        ),
+    )
+    # 父级带旋转和非均匀缩放，世界变换保持才有意义
+    r.call("object.rotate", {"name": "BackAssembly", "rotation": [0, 0, 45]})
+    r.call("object.scale", {"name": "BackAssembly", "scale": [2, 1, 0.5]})
+    r.call("object.move", {"name": "Back", "location": [0.5, -1, 1.5]})
+    r.call("object.rotate", {"name": "Back", "rotation": [10, 0, 30]})
+    bpy.context.view_layer.update()
+    back_world_before = [v for row in bpy.data.objects["Back"].matrix_world for v in row]
+
+    def _back_world_kept(_d) -> bool:
+        bpy.context.view_layer.update()
+        after = [v for row in bpy.data.objects["Back"].matrix_world for v in row]
+        return all(abs(a - b) < 1e-4 for a, b in zip(after, back_world_before))
+
+    r.pos(
+        "pos.set_parent",
+        "object.set_parent",
+        {"child": "Back", "parent": "BackAssembly", "keep_transform": True},
+        lambda d: (
+            d.get("child") == "Back"
+            and d.get("parent") == "BackAssembly"
+            and d.get("keep_transform") is True
+            and bpy.data.objects["Back"].parent == bpy.data.objects["BackAssembly"]
+            and "Back" in [c.name for c in bpy.data.objects["BackAssembly"].children]
+        ),
+    )
+    r.pos("pos.set_parent_world_kept", "scene.list_objects", {}, _back_world_kept)
+    r.pos(
+        "pos.list_hierarchy_assembly",
+        "scene.list_hierarchy",
+        {},
+        lambda d: (
+            any(
+                o["name"] == "Back" and o.get("parent") == "BackAssembly"
+                for o in d.get("objects", [])
+            )
+            and any(
+                o["name"] == "BackAssembly" and "Back" in o.get("children", [])
+                for o in d.get("objects", [])
+            )
+        ),
+    )
+    r.pos(
+        "pos.isolate_assembly",
+        "scene.isolate_hierarchy",
+        {"root": "BackAssembly"},
+        lambda d: set(d.get("isolated", [])) == {"BackAssembly", "Back", "BackDetail"},
+    )
+    r.call("scene.restore_visibility", {})
+    # --- end of agent 自建层级 ---
     r.pos(
         "pos.list_has_cube",
         "scene.list_objects",
@@ -419,6 +489,23 @@ def main() -> int:
     r.pos("pos.delete", "object.delete", {"name": "CubeCopy"}, lambda d: not _has_obj("CubeCopy"))
     r.pos("pos.clear", "scene.clear", {}, lambda d: len(list(bpy.data.objects)) == 0)
 
+    # isolate → clear → restore：clear 必须丢弃快照
+    r.call("object.add_cube", {"name": "SnapA"})
+    r.call("object.add_cube", {"name": "SnapB"})
+    r.call("scene.isolate_objects", {"names": ["SnapA"]})
+    r.pos(
+        "pos.clear_drops_snapshot",
+        "scene.clear",
+        {},
+        lambda d: d.get("visibility_snapshot_cleared") is True,
+    )
+    r.pos(
+        "pos.restore_after_clear",
+        "scene.restore_visibility",
+        {},
+        lambda d: d.get("restored") is False,
+    )
+
     # --- 反向：核心错误场景 ---
     print("\n[反向]")
     reset()
@@ -460,6 +547,16 @@ def main() -> int:
     r.neg("neg.scale_missing", "object.scale_missing", "object.scale", {"name": "Cube"}, "scale")
     r.neg("neg.scale_le_0", "object.scale_le_0", "object.scale", {"name": "Cube", "scale": [1, 0, 1]}, "greater than zero")
     r.neg("neg.dup_no_name", "object.duplicate_no_name", "object.duplicate", {}, "name")
+    r.neg("neg.empty_no_name", "object.empty_name_empty", "object.add_empty", {"name": "  "}, "cannot be empty")
+    r.neg("neg.empty_exists", "object.empty_exists", "object.add_empty", {"name": "Cube"}, "already exists")
+    r.neg("neg.empty_location_bad", "object.empty_location_bad", "object.add_empty", {"name": "G", "location": [1]}, "exactly three")
+    r.call("object.add_empty", {"name": "Group"})
+    r.neg("neg.parent_child_missing", "object.parent_child_missing", "object.set_parent", {"child": "NoSuch", "parent": "Group"}, "not found")
+    r.neg("neg.parent_missing", "object.parent_missing", "object.set_parent", {"child": "Cube", "parent": "NoSuch"}, "not found")
+    r.neg("neg.parent_same", "object.parent_same", "object.set_parent", {"child": "Cube", "parent": "Cube"}, "itself")
+    r.call("object.set_parent", {"child": "Cube", "parent": "Group"})
+    r.neg("neg.parent_cycle", "object.parent_cycle", "object.set_parent", {"child": "Group", "parent": "Cube"}, "cycle")
+    r.neg("neg.parent_keep_bad", "object.parent_keep_bad", "object.set_parent", {"child": "Ball", "parent": "Group", "keep_transform": "yes"}, "boolean")
 
     r.neg("neg.mesh_not_found", "mesh.not_found", "mesh.stats", {"name": "Ghost"}, "not found")
     r.neg("neg.mesh_not_mesh", "mesh.not_mesh", "mesh.stats", {"name": "Key"}, "not a mesh")

@@ -21,6 +21,8 @@ def clear_scene(params: dict[str, Any]) -> dict[str, Any]:
     """
     import bpy
 
+    global _visibility_snapshot
+
     objects = list(bpy.data.objects)
     deleted_count = len(objects)
 
@@ -29,9 +31,14 @@ def clear_scene(params: dict[str, Any]) -> dict[str, Any]:
     for obj in objects:
         bpy.data.objects.remove(obj, do_unlink=True)
 
+    # 快照里的物体已全部删除，留着会让之后同名新物体被错误恢复成旧可见性
+    snapshot_cleared = _visibility_snapshot is not None
+    _visibility_snapshot = None
+
     check.scene_empty()
     return check.stamp({
         "deleted_count": deleted_count,
+        "visibility_snapshot_cleared": snapshot_cleared,
     })
 
 
@@ -264,7 +271,9 @@ def isolate_hierarchy(params: dict[str, Any]) -> dict[str, Any]:
 @command("scene.restore_visibility")
 def restore_visibility(params: dict[str, Any]) -> dict[str, Any]:
     """
-    Restore the visibility state saved before scene.isolate_objects.
+    Restore the visibility state saved before the first
+    scene.isolate_objects / scene.isolate_hierarchy call.
+    scene.clear discards the snapshot.
 
     Input:
         {}

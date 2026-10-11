@@ -43,7 +43,7 @@ export const tools: PluginTool[] = [
         "properties": {},
         "additionalProperties": false
 }),
-    bridgeTool("scene.isolate_objects", "临时隔离指定物体，只显示当前需要编辑或视觉检查的物体，并隐藏其他物体。适合复杂场景中按部件或层级逐步检查。完成局部检查后必须调用 scene.restore_visibility 恢复原始可见状态", {
+    bridgeTool("scene.isolate_objects", "临时隔离指定物体，只显示列出的物体，隐藏其他物体。按整个层级隔离用 scene_isolate_hierarchy；已隔离的部件直接编辑，不要再次隔离。完成后调用 scene_restore_visibility", {
         "type": "object",
         "properties": {
             "names": {
@@ -58,7 +58,7 @@ export const tools: PluginTool[] = [
         "required": ["names"],
         "additionalProperties": false
 }),
-    bridgeTool("scene.isolate_hierarchy", "按层级隔离一个物体：保留指定 root 及其所有子孙对象可见，隐藏场景中的其他对象。适合 LLM 分层编辑和检查模型，例如只查看 Chair 的 Back 层级；完成后使用 scene.restore_visibility 恢复原来的可见性", {
+    bridgeTool("scene.isolate_hierarchy", "按层级隔离：保留 root 及其所有子孙可见，隐藏其他物体。调用成功后直接用 object/mesh 等工具编辑 isolated 中的物体，不要再调 scene_isolate_objects。完成后调用 scene_restore_visibility", {
         "type": "object",
         "properties": {
             "root": {
@@ -69,7 +69,7 @@ export const tools: PluginTool[] = [
         "required": ["root"],
         "additionalProperties": false
 }),
-    bridgeTool("scene.restore_visibility", "恢复调用 scene.isolate_objects 之前的场景可见状态。完成局部编辑或局部视觉检查后使用", {
+    bridgeTool("scene.restore_visibility", "恢复第一次 isolate_objects / isolate_hierarchy 之前的可见状态。scene_clear 会丢弃快照，此后返回 restored=false", {
         "type": "object",
         "properties": {},
         "additionalProperties": false
@@ -199,7 +199,7 @@ export const tools: PluginTool[] = [
         ],
         "additionalProperties": false
 }),
-    bridgeTool("object.move", "把物体移动到指定位置（绝对坐标，不是相对位移）", {
+    bridgeTool("object.move", "把物体移动到指定位置（绝对坐标，不是相对位移）。只改位置，不改大小；要求更高/更宽/更长/更大时用 object_scale", {
         "type": "object",
         "properties": {
                 "name": {
@@ -245,7 +245,7 @@ export const tools: PluginTool[] = [
         ],
         "additionalProperties": false
 }),
-    bridgeTool("object.scale", "设置物体的 XYZ 缩放系数（绝对值，1 表示原始大小）", {
+    bridgeTool("object.scale", "设置物体的 XYZ 缩放系数（绝对值，1 表示原始大小）。改尺寸用它：更高/taller 调 Z，更宽调 X，更深调 Y，在当前 scale 上乘系数", {
         "type": "object",
         "properties": {
                 "name": {
@@ -304,6 +304,50 @@ export const tools: PluginTool[] = [
         },
         "required": [
                 "name"
+        ],
+        "additionalProperties": false
+}),
+    bridgeTool("object.add_empty", "新建一个 Empty（空物体，不渲染）。用作层级/分组的根，例如 BackAssembly，再用 object_set_parent 把部件挂到它下面。同名物体已存在会报错", {
+        "type": "object",
+        "properties": {
+                "name": {
+                        "type": "string",
+                        "description": "Empty 名称，例如 BackAssembly；不能与已有物体重名"
+                },
+                "location": {
+                        "type": "array",
+                        "description": "放置位置 [x, y, z]，默认世界原点",
+                        "items": {
+                                "type": "number"
+                        },
+                        "minItems": 3,
+                        "maxItems": 3
+                }
+        },
+        "required": [
+                "name"
+        ],
+        "additionalProperties": false
+}),
+    bridgeTool("object.set_parent", "建立父子层级：把 child 挂到 parent 下（child.parent = parent），之后可用 scene_list_hierarchy 查看、scene_isolate_hierarchy 隔离。把已有部件归组时用 keep_transform=true，部件不会在视图中跳动", {
+        "type": "object",
+        "properties": {
+                "child": {
+                        "type": "string",
+                        "description": "子物体名称，必须已存在"
+                },
+                "parent": {
+                        "type": "string",
+                        "description": "父物体名称，必须已存在，常为 object_add_empty 建的分组根"
+                },
+                "keep_transform": {
+                        "type": "boolean",
+                        "description": "是否保持子物体的世界变换，默认 true；false 时子物体按父级坐标重新定位"
+                }
+        },
+        "required": [
+                "child",
+                "parent"
         ],
         "additionalProperties": false
 }),
